@@ -1,0 +1,23 @@
+title = "Student Management Gitleaks Config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+paths = [
+  '''target/''',
+  '''src/test/''',
+]
+
+[[rules]]
+id = "db-password"
+description = "Database password hardcoded in properties file"
+regex = '''(?i)password\s*=\s*\S+'''
+path = '''application\.properties'''
+tags = ["secret", "database"]
+
+[[rules]]
+id = "hardcoded-api-key"
+description = "Hardcoded API key in Java source"
+regex = '''(?i)(apiKey|api_key)\s*=\s*["'][^"']{10,}["']'''
+tags = ["secret", "api-key"]
