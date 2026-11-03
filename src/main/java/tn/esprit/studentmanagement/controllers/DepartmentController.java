@@ -3,8 +3,6 @@ package tn.esprit.studentmanagement.controllers;
 import lombok.AllArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 import tn.esprit.studentmanagement.entities.Department;
-import tn.esprit.studentmanagement.entities.Enrollment;
-import tn.esprit.studentmanagement.services.DepartmentService;
 import tn.esprit.studentmanagement.services.IDepartmentService;
 
 import java.util.List;
@@ -21,8 +19,10 @@ public class DepartmentController {
         return departmentService.getAllDepartments();
     }
 
-    @GetMapping("/getDepartment/{id}"))
-    public Department getDepartment(@PathVariable Long id) { return departmentService.getDepartmentById(id); }
+    @GetMapping("/getDepartment/{id}")
+    public Department getDepartment(@PathVariable Long id) {
+        return departmentService.getDepartmentById(id);
+    }
 
     @PostMapping("/createDepartment")
     public Department createDepartment(@RequestBody Department department) {
@@ -31,9 +31,11 @@ public class DepartmentController {
 
     @PutMapping("/updateDepartment")
     public Department updateDepartment(@RequestBody Department department) {
-        return departmentService.save.Department(department);
+        return departmentService.saveDepartment(department);
     }
 
     @DeleteMapping("/deleteDepartment/{id}")
     public void deleteDepartment(@PathVariable Long id) {
-      departmentService.deleteDepartment(id); }
+        departmentService.deleteDepartment(id);
+    }
+}
