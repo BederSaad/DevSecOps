@@ -260,7 +260,6 @@ jobs:
             --spring.datasource.password= \
             --spring.jpa.database-platform=org.hibernate.dialect.H2Dialect \
             --spring.jpa.hibernate.ddl-auto=create-drop \
-            --spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.mysql.MysqlDataSourceAutoConfiguration \
             --server.port=8089 \
             --server.servlet.context-path=/student &
           echo "Waiting 45s for app to start..."
@@ -295,37 +294,49 @@ jobs:
     if: always()
     steps:
       - name: Send detailed Telegram notification
+        env:
+          S1: ${{ needs.secrets_scan.result }}
+          S2: ${{ needs.build_test.result }}
+          S3: ${{ needs.sast.result }}
+          S4: ${{ needs.sca.result }}
+          S5: ${{ needs.docker_scan.result }}
+          S6: ${{ needs.iac_scan.result }}
+          S7: ${{ needs.sbom.result }}
+          S8: ${{ needs.dast.result }}
+          TG_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+          BRANCH: ${{ github.ref_name }}
+          ACTOR: ${{ github.actor }}
+          RUN_ID: ${{ github.run_id }}
         run: |
-          S1="${{ needs.secrets_scan.result }}"
-          S2="${{ needs.build_test.result }}"
-          S3="${{ needs.sast.result }}"
-          S4="${{ needs.sca.result }}"
-          S5="${{ needs.docker_scan.result }}"
-          S6="${{ needs.iac_scan.result }}"
-          S7="${{ needs.sbom.result }}"
-          S8="${{ needs.dast.result }}"
-          icon() { [ "$1" = "success" ] && echo "OK" || [ "$1" = "skipped" ] && echo "SKIP" || echo "FAIL"; }
-          if echo "$S1 $S2 $S3 $S4 $S5" | grep -q "failure"; then
-            STATUS="FAILED"
-          else
-            STATUS="PASSED"
-          fi
-          MESSAGE="DevSecOps Pipeline: $STATUS
-Repo: BederSaad/DevSecOps
-Branch: ${{ github.ref_name }}
-Author: ${{ github.actor }}
-
-Stage Results:
-[$(icon $S1)] 1-Secrets Scan: $S1
-[$(icon $S2)] 2-Build Test:   $S2
-[$(icon $S3)] 3-SAST Sonar:   $S3
-[$(icon $S4)] 4-SCA Trivy:    $S4
-[$(icon $S5)] 5-Docker Grype: $S5
-[$(icon $S6)] 6-IaC Checkov:  $S6
-[$(icon $S7)] 7-SBOM Syft:    $S7
-[$(icon $S8)] 8-DAST ZAP:     $S8
-
-Details: https://github.com/BederSaad/DevSecOps/actions/runs/${{ github.run_id }}"
-          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \
-            -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
-            -d text="$MESSAGE"
+          icon() {
+            case "$1" in
+              success) echo "OK" ;;
+              skipped) echo "SKIP" ;;
+              *) echo "FAIL" ;;
+            esac
+          }
+          STATUS="PASSED"
+          for s in "$S1" "$S2" "$S3" "$S4" "$S5"; do
+            [ "$s" = "failure" ] && STATUS="FAILED"
+          done
+          MESSAGE=$(printf '%s\n' \
+            "DevSecOps Pipeline: $STATUS" \
+            "Repo: BederSaad/DevSecOps" \
+            "Branch: $BRANCH" \
+            "Author: $ACTOR" \
+            "" \
+            "Stage Results:" \
+            "[$(icon "$S1")] 1-Secrets Scan: $S1" \
+            "[$(icon "$S2")] 2-Build Test: $S2" \
+            "[$(icon "$S3")] 3-SAST Sonar: $S3" \
+            "[$(icon "$S4")] 4-SCA Trivy: $S4" \
+            "[$(icon "$S5")] 5-Docker Grype: $S5" \
+            "[$(icon "$S6")] 6-IaC Checkov: $S6" \
+            "[$(icon "$S7")] 7-SBOM Syft: $S7" \
+            "[$(icon "$S8")] 8-DAST ZAP: $S8" \
+            "" \
+            "Details: https://github.com/BederSaad/DevSecOps/actions/runs/$RUN_ID")
+          curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TG_CHAT}" \
+            --data-urlencode "text=${MESSAGE}"
