@@ -250,7 +250,8 @@ jobs:
 
       - name: Start app
         run: |
-          nohup java -jar target/*.jar \
+          mvn -B dependency:copy -Dartifact=com.h2database:h2:2.3.232 -DoutputDirectory=extra-libs
+          nohup java -cp "target/*.jar:extra-libs/*" -Dloader.path=extra-libs org.springframework.boot.loader.launch.PropertiesLauncher \
             --spring.datasource.url=jdbc:h2:mem:testdb \
             --spring.datasource.driver-class-name=org.h2.Driver \
             --spring.datasource.username=sa \
