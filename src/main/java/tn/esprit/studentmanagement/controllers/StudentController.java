@@ -1,4 +1,4 @@
-﻿package tn.esprit.studentmanagement.controllers;
+package tn.esprit.studentmanagement.controllers;
 
 import lombok.AllArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
