@@ -292,32 +292,18 @@ jobs:
     needs: [secrets_scan, build_test, sast, sca, docker_scan, iac_scan, sbom, dast]
     if: always()
     steps:
-      - name: Send Telegram notification
+      - name: Send Telegram notification on failure
+        if: contains(needs.*.result, 'failure')
         run: |
-          FAILED_JOBS=""
-          if [ "${{ needs.secrets_scan.result }}" = "failure" ]; then FAILED_JOBS="$FAILED_JOBS secrets_scan"; fi
-          if [ "${{ needs.build_test.result }}" = "failure" ]; then FAILED_JOBS="$FAILED_JOBS build_test"; fi
-          if [ "${{ needs.sast.result }}" = "failure" ]; then FAILED_JOBS="$FAILED_JOBS sast"; fi
-          if [ "${{ needs.sca.result }}" = "failure" ]; then FAILED_JOBS="$FAILED_JOBS sca"; fi
-          if [ "${{ needs.docker_scan.result }}" = "failure" ]; then FAILED_JOBS="$FAILED_JOBS docker_scan"; fi
-
-          if [ -n "$FAILED_JOBS" ]; then
-            MESSAGE="❌ DevSecOps Pipeline FAILED
-Repo: BederSaad/DevSecOps
-Branch: ${{ github.ref_name }}
-Commit: ${{ github.sha }}
-Author: ${{ github.actor }}
-Failed stages:$FAILED_JOBS
-Details: https://github.com/BederSaad/DevSecOps/actions/runs/${{ github.run_id }}"
-          else
-            MESSAGE="✅ DevSecOps Pipeline PASSED
-Repo: BederSaad/DevSecOps
-Branch: ${{ github.ref_name }}
-Commit: ${{ github.sha }}
-Author: ${{ github.actor }}
-All security checks passed"
-          fi
-
           curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \
             -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
-            -d text="$MESSAGE"
+            -d parse_mode=HTML \
+            -d text="<b>FAILED - DevSecOps Pipeline</b>%0ARepo: BederSaad/DevSecOps%0ABranch: ${{ github.ref_name }}%0ACommit: ${{ github.sha }}%0AAuthor: ${{ github.actor }}%0ADetails: https://github.com/BederSaad/DevSecOps/actions/runs/${{ github.run_id }}"
+
+      - name: Send Telegram notification on success
+        if: "!contains(needs.*.result, 'failure')"
+        run: |
+          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \
+            -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
+            -d parse_mode=HTML \
+            -d text="<b>PASSED - DevSecOps Pipeline</b>%0ARepo: BederSaad/DevSecOps%0ABranch: ${{ github.ref_name }}%0ACommit: ${{ github.sha }}%0AAuthor: ${{ github.actor }}%0AAll security checks passed"
