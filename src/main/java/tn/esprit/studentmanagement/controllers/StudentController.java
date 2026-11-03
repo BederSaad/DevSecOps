@@ -29,9 +29,8 @@ IStudentService studentService;
 
     @PutMapping("/updateStudent")
     public Student updateStudent(@RequestBody Student student) {
-        return studentService.saveStudent(student);
+        return studentService.save.Student(student);
     }
 
     @DeleteMapping("/deleteStudent/{id}")
     public void deleteStudent(@PathVariable Long id) { studentService.deleteStudent(id); }
-}
