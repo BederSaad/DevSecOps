@@ -7,7 +7,6 @@ import tn.esprit.studentmanagement.entities.Department;
 import tn.esprit.studentmanagement.entities.Student;
 import tn.esprit.studentmanagement.services.IStudentService;
 
-import javax.crypto.Cipher;
 import java.util.List;
 
 /**
@@ -47,7 +46,6 @@ public class StudentController {
         return studentService.saveStudent(student);
     }
 
-    
     @DeleteMapping("/deleteStudent/{id}")
     public void deleteStudent(@PathVariable Long id) {
         studentService.deleteStudent(id);
@@ -71,6 +69,6 @@ public class StudentController {
             dept.setIdDepartment(dto.getDepartmentId());
             student.setDepartment(dept);
         }
-        return student
-    
+        return student;
+    }
 }
