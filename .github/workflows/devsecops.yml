@@ -115,7 +115,8 @@ jobs:
         run: mvn -B dependency:resolve -q
 
       - name: Run Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.28.0
+        # v0.36.0 – pinned to immutable commit SHA to prevent tag-rewriting attacks
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           scan-type: 'fs'
           scan-ref: '.'
@@ -125,7 +126,8 @@ jobs:
           vuln-type: 'library'
 
       - name: Run Trivy JSON report
-        uses: aquasecurity/trivy-action@0.28.0
+        # v0.36.0 – pinned to immutable commit SHA to prevent tag-rewriting attacks
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         if: always()
         with:
           scan-type: 'fs'
