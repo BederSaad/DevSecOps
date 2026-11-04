@@ -71,6 +71,6 @@ public class StudentController {
             dept.setIdDepartment(dto.getDepartmentId());
             student.setDepartment(dept);
         }
-        return student;
-    }
+        return student
+    
 }
