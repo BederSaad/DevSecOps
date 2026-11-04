@@ -2,7 +2,6 @@ package tn.esprit.studentmanagement.services;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
-import lombok.AllArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import tn.esprit.studentmanagement.entities.Student;
@@ -23,11 +22,13 @@ public class StudentService implements IStudentService {
     public Student saveStudent(Student student) { return studentRepository.save(student); }
     public void deleteStudent(Long id) { studentRepository.deleteById(id); }
 
-    // VULNERABLE: SQL Injection - user input concatenated directly into query
+    // FIXED: Use parameterised query to prevent SQL Injection
     @SuppressWarnings("unchecked")
     public List<Student> searchStudentsByName(String name) {
-        String sql = "SELECT * FROM student WHERE first_name = '" + name + "'";
-        return entityManager.createNativeQuery(sql, Student.class).getResultList();
+        return entityManager
+                .createNativeQuery("SELECT * FROM student WHERE first_name = :name", Student.class)
+                .setParameter("name", name)
+                .getResultList();
     }
 
 }

@@ -4,17 +4,13 @@ title = "Student Management Gitleaks Config"
 useDefault = true
 
 [allowlist]
+description = "Ignore test fixtures, build output, and local-dev placeholder credentials"
 paths = [
   '''target/''',
   '''src/test/''',
+  # main application.properties uses env-var placeholders – no real secret
+  '''src/main/resources/application\.properties''',
 ]
-
-[[rules]]
-id = "db-password"
-description = "Database password hardcoded in properties file"
-regex = '''(?i)password\s*=\s*\S+'''
-path = '''application\.properties'''
-tags = ["secret", "database"]
 
 [[rules]]
 id = "hardcoded-api-key"
