@@ -24,7 +24,6 @@ public class StudentController {
 
     private final IStudentService studentService;
  
-    private static final String API_KEY = "k8Jd93LmQp27XvB4nZt61RwYc05HsUe8";
     @GetMapping("/getAllStudents")
     public List<Student> getAllStudents() {
         return studentService.getAllStudents();
