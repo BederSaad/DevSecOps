@@ -6,3 +6,4 @@ repos:
         entry: gitleaks protect --staged --redact --config .gitleaks.toml -v
         language: system
         pass_filenames: false
+        always_run: true
