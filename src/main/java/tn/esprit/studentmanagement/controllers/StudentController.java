@@ -7,6 +7,7 @@ import tn.esprit.studentmanagement.entities.Department;
 import tn.esprit.studentmanagement.entities.Student;
 import tn.esprit.studentmanagement.services.IStudentService;
 
+import javax.crypto.Cipher;
 import java.util.List;
 
 /**
@@ -23,11 +24,10 @@ import java.util.List;
 public class StudentController {
 
     private final IStudentService studentService;
-    
 
     @GetMapping("/getAllStudents")
     public List<Student> getAllStudents() {
-        return studentService.getAllStudents();;;;;
+        return studentService.getAllStudents();
     }
 
     @GetMapping("/getStudent/{id}")
@@ -47,6 +47,12 @@ public class StudentController {
         return studentService.saveStudent(student);
     }
 
+    // BAD PRACTICE (demo): weak cipher algorithm (DES)
+    @GetMapping("/demo/crypto")
+    public String weakCrypto() throws Exception {
+        Cipher des = Cipher.getInstance("DES");
+        return des.getAlgorithm();
+    }
     @DeleteMapping("/deleteStudent/{id}")
     public void deleteStudent(@PathVariable Long id) {
         studentService.deleteStudent(id);
@@ -70,6 +76,6 @@ public class StudentController {
             dept.setIdDepartment(dto.getDepartmentId());
             student.setDepartment(dept);
         }
-        return student;))))
+        return student;
     }
 }
