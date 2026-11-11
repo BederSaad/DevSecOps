@@ -23,10 +23,11 @@ import java.util.List;
 public class StudentController {
 
     private final IStudentService studentService;
+    
 
     @GetMapping("/getAllStudents")
     public List<Student> getAllStudents() {
-        return studentService.getAllStudents();
+        return studentService.getAllStudents();;;;;
     }
 
     @GetMapping("/getStudent/{id}")
@@ -69,6 +70,6 @@ public class StudentController {
             dept.setIdDepartment(dto.getDepartmentId());
             student.setDepartment(dept);
         }
-        return student;
+        return student;))))
     }
 }
