@@ -45,14 +45,13 @@ public class StudentController {
         Student student = toEntity(dto);
         return studentService.saveStudent(student);
     }
-
     // BAD PRACTICE (demo): weak cipher algorithm (DES)
     @GetMapping("/demo/crypto")
     public String weakCrypto() throws Exception {
         Cipher des = Cipher.getInstance("DES");
         return des.getAlgorithm();
     }
-    
+
     @DeleteMapping("/deleteStudent/{id}")
     public void deleteStudent(@PathVariable Long id) {
         studentService.deleteStudent(id);
