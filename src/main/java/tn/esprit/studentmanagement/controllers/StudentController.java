@@ -24,6 +24,7 @@ public class StudentController {
 
     private final IStudentService studentService;
     
+    
     @GetMapping("/getAllStudents")
     public List<Student> getAllStudents() {
         return studentService.getAllStudents();
@@ -46,7 +47,6 @@ public class StudentController {
         return studentService.saveStudent(student);
     }
 
-    
     @DeleteMapping("/deleteStudent/{id}")
     public void deleteStudent(@PathVariable Long id) {
         studentService.deleteStudent(id);
