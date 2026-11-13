@@ -1,25 +1,24 @@
+
 name: DevSecOps Pipeline
 
 on:
   push:
-    branches:
-      - main
-      - develop
-      - 'demo/*'
+    branches: [main, develop, 'demo/*']
   pull_request:
-    branches:
-      - main
+    branches: [main]
 
 permissions:
   contents: read
 
 jobs:
+
   # ============================================================
   # STAGE 1 - SECRETS SCAN (Gitleaks)
   # ============================================================
   secrets_scan:
     name: "1 - Secrets Scan (Gitleaks)"
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -32,13 +31,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_COMMENTS: false
 
+
   # ============================================================
-  # STAGE 2 - BUILD AND TEST (Maven / Java 17)
+  # STAGE 2 - BUILD AND TEST (Maven + Java 17)
   # ============================================================
   build_test:
     name: "2 - Build and Test (Maven)"
     runs-on: ubuntu-latest
     needs: secrets_scan
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -50,20 +51,25 @@ jobs:
           distribution: temurin
           cache: maven
 
+      - name: Verify Java version
+        run: java -version
+
       - name: Build and test
         run: mvn -B clean verify
 
-      - name: Check that an application JAR exists
-        shell: bash
+      - name: Verify executable JAR
         run: |
-          set -euo pipefail
-          find target -maxdepth 1 -type f -name '*.jar' \
-            ! -name '*-sources.jar' \
-            ! -name '*-javadoc.jar' \
-            ! -name '*.original' \
-            -print -quit | grep -q .
+          JAR=$(find target -maxdepth 1 -type f \
+            -name '*.jar' ! -name '*.jar.original' | head -n 1)
 
-      - name: Upload tested JAR
+          if [ -z "$JAR" ]; then
+            echo "No executable JAR found."
+            exit 1
+          fi
+
+          echo "JAR generated: $JAR"
+
+      - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-jar
@@ -71,53 +77,78 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+
   # ============================================================
   # STAGE 3 - SAST (SonarCloud)
+  # Java 21 required by the current SonarCloud scanner
+  # Application compilation target can remain Java 17
   # ============================================================
   sast:
     name: "3 - SAST (SonarCloud)"
     runs-on: ubuntu-latest
     needs: build_test
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: temurin
           cache: maven
 
-      - name: SonarCloud analysis and Quality Gate
+      - name: Verify Java version
+        run: java -version
+
+      - name: Check SonarCloud secrets
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+          SONAR_ORG: ${{ secrets.SONAR_ORG }}
+        run: |
+          test -n "$SONAR_TOKEN" || {
+            echo "SONAR_TOKEN is missing."
+            exit 1
+          }
+
+          test -n "$SONAR_PROJECT_KEY" || {
+            echo "SONAR_PROJECT_KEY is missing."
+            exit 1
+          }
+
+          test -n "$SONAR_ORG" || {
+            echo "SONAR_ORG is missing."
+            exit 1
+          }
+
+      - name: SonarCloud Scan and Quality Gate
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
           SONAR_ORG: ${{ secrets.SONAR_ORG }}
         run: |
-          set -euo pipefail
-          test -n "$SONAR_TOKEN"
-          test -n "$SONAR_PROJECT_KEY"
-          test -n "$SONAR_ORG"
-
           mvn -B clean verify sonar:sonar \
             -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
             -Dsonar.organization="$SONAR_ORG" \
             -Dsonar.host.url=https://sonarcloud.io \
-            -Dsonar.qualitygate.wait=true \
-            -Dsonar.token="$SONAR_TOKEN"
+            -Dsonar.token="$SONAR_TOKEN" \
+            -Dsonar.qualitygate.wait=true
+
 
   # ============================================================
-  # STAGE 4 - SCA (Trivy filesystem scan)
-  # Blocks on CRITICAL, fixable library vulnerabilities.
+  # STAGE 4 - SCA (Trivy)
+  # Blocks on CRITICAL dependency vulnerabilities
   # ============================================================
   sca:
     name: "4 - SCA (Trivy)"
     runs-on: ubuntu-latest
     needs: sast
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -129,10 +160,10 @@ jobs:
           distribution: temurin
           cache: maven
 
-      - name: Resolve Maven dependencies
-        run: mvn -B dependency:resolve
+      - name: Populate Maven dependencies
+        run: mvn -B dependency:resolve -q
 
-      - name: Trivy blocking scan
+      - name: Trivy filesystem scan - blocking
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           scan-type: fs
@@ -154,7 +185,6 @@ jobs:
           severity: CRITICAL,HIGH,MEDIUM
           vuln-type: library
           ignore-unfixed: true
-          exit-code: '0'
 
       - name: Upload Trivy report
         if: always()
@@ -163,16 +193,17 @@ jobs:
           name: trivy-sca-report
           path: trivy-sca-report.json
           if-no-files-found: warn
-          retention-days: 7
+
 
   # ============================================================
   # STAGE 5 - DOCKER BUILD + GRYPE IMAGE SCAN
-  # Builds once, scans once, exports the exact image for later jobs.
+  # Builds one image, scans it, and saves that exact image
   # ============================================================
   docker_scan:
     name: "5 - Docker Build and Grype Scan"
     runs-on: ubuntu-latest
     needs: sca
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -183,26 +214,38 @@ jobs:
           name: app-jar
           path: target
 
+      - name: Verify downloaded JAR
+        run: |
+          find target -maxdepth 1 -type f -name '*.jar' -print
+
+          JAR=$(find target -maxdepth 1 -type f \
+            -name '*.jar' ! -name '*.jar.original' | head -n 1)
+
+          if [ -z "$JAR" ]; then
+            echo "Tested JAR is missing."
+            exit 1
+          fi
+
       - name: Build Docker image
         run: |
           docker build \
-            --label org.opencontainers.image.source=https://github.com/${{ github.repository }} \
-            --tag devsecops-app:latest \
-            .
+            --label org.opencontainers.image.source=https://github.com/BederSaad/DevSecOps \
+            -t devsecops-app:ci .
 
       - name: Install Grype
         run: |
           curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh \
             | sh -s -- -b /usr/local/bin
 
+          grype version
+
       - name: Generate Grype JSON report
         if: always()
         run: |
-          if docker image inspect devsecops-app:latest >/dev/null 2>&1; then
-            grype devsecops-app:latest -o json > grype-image-report.json
+          if docker image inspect devsecops-app:ci >/dev/null 2>&1; then
+            grype devsecops-app:ci -o json > grype-image-report.json
           else
-            echo "Docker image was not built; no Grype report generated."
-            exit 1
+            echo "Docker image is unavailable." > grype-image-report.json
           fi
 
       - name: Upload Grype report
@@ -212,35 +255,41 @@ jobs:
           name: grype-image-report
           path: grype-image-report.json
           if-no-files-found: warn
-          retention-days: 7
 
-      - name: Grype blocking security gate
-        run: grype devsecops-app:latest -o table --fail-on critical --only-fixed
+      - name: Grype vulnerability gate
+        run: |
+          grype devsecops-app:ci \
+            -o table \
+            --fail-on critical \
+            --only-fixed
 
-      - name: Export the scanned image
-        run: docker save devsecops-app:latest -o devsecops-app.tar
+      - name: Save scanned Docker image
+        run: |
+          docker save devsecops-app:ci -o devsecops-image.tar
 
-      - name: Upload the scanned image
+      - name: Upload scanned Docker image
         uses: actions/upload-artifact@v4
         with:
           name: scanned-docker-image
-          path: devsecops-app.tar
+          path: devsecops-image.tar
           if-no-files-found: error
           retention-days: 1
 
+
   # ============================================================
   # STAGE 6 - IaC SCAN (Checkov)
-  # Blocking: Checkov findings fail this job.
+  # Blocking Dockerfile security checks
   # ============================================================
   iac_scan:
     name: "6 - IaC Scan (Checkov)"
     runs-on: ubuntu-latest
     needs: docker_scan
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Check Dockerfile and IaC
+      - name: Run Checkov on Dockerfile
         uses: bridgecrewio/checkov-action@v12
         with:
           directory: .
@@ -248,14 +297,16 @@ jobs:
           soft_fail: false
           output_format: cli
 
+
   # ============================================================
   # STAGE 7 - SBOM (Syft)
-  # Generates the SBOM from the exact Docker image that was scanned.
+  # Generates SBOM from the exact Grype-scanned Docker image
   # ============================================================
   sbom:
-    name: "7 - SBOM (Syft)"
+    name: "7 - SBOM Generation (Syft)"
     runs-on: ubuntu-latest
     needs: iac_scan
+
     steps:
       - name: Download scanned Docker image
         uses: actions/download-artifact@v4
@@ -264,34 +315,37 @@ jobs:
           path: .
 
       - name: Load scanned Docker image
-        run: docker load --input devsecops-app.tar
+        run: docker load -i devsecops-image.tar
 
       - name: Install Syft
         run: |
           curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
             | sh -s -- -b /usr/local/bin
 
-      - name: Generate image SBOM
-        run: |
-          syft devsecops-app:latest -o cyclonedx-json > sbom-cyclonedx.json
-          syft devsecops-app:latest -o table
+          syft version
 
-      - name: Upload SBOM
+      - name: Generate CycloneDX SBOM
+        run: |
+          syft devsecops-app:ci -o cyclonedx-json > sbom-cyclonedx.json
+          syft devsecops-app:ci -o table
+
+      - name: Upload SBOM artifact
         uses: actions/upload-artifact@v4
         with:
           name: sbom-cyclonedx
           path: sbom-cyclonedx.json
           if-no-files-found: error
-          retention-days: 7
+
 
   # ============================================================
   # STAGE 8 - DAST (OWASP ZAP)
-  # Reuses the JAR produced and tested in Stage 2.
+  # Tests the already-built application JAR
   # ============================================================
   dast:
     name: "8 - DAST (OWASP ZAP)"
     runs-on: ubuntu-latest
     needs: sbom
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -309,61 +363,58 @@ jobs:
           name: app-jar
           path: target
 
-      - name: Locate application JAR
-        id: jar
-        shell: bash
+      - name: Verify application JAR
         run: |
-          set -euo pipefail
-          JAR_PATH="$(find target -maxdepth 1 -type f -name '*.jar' \
-            ! -name '*-sources.jar' \
-            ! -name '*-javadoc.jar' \
-            ! -name '*.original' \
-            -print -quit)"
-          if [ -z "$JAR_PATH" ]; then
-            echo "No executable JAR found in target/"
+          JAR=$(find target -maxdepth 1 -type f \
+            -name '*.jar' ! -name '*.jar.original' | head -n 1)
+
+          if [ -z "$JAR" ]; then
+            echo "Application JAR not found."
             exit 1
           fi
-          echo "path=$JAR_PATH" >> "$GITHUB_OUTPUT"
 
-      - name: Start application
-        env:
-          APP_JAR: ${{ steps.jar.outputs.path }}
+          echo "Using JAR: $JAR"
+          echo "APP_JAR=$JAR" >> "$GITHUB_ENV"
+
+      - name: Start Spring Boot application
         run: |
-          set -euo pipefail
           nohup java -jar "$APP_JAR" \
             --spring.datasource.url=jdbc:h2:mem:testdb \
             --spring.datasource.driver-class-name=org.h2.Driver \
             --spring.datasource.username=sa \
             --spring.datasource.password= \
-            --spring.jpa.database-platform=org.hibernate.dialect.H2Dialect \
             --spring.jpa.hibernate.ddl-auto=create-drop \
             --server.port=8089 \
             --server.servlet.context-path=/student \
             > app.log 2>&1 &
 
           for i in $(seq 1 40); do
-            STATUS="$(curl -s -o /dev/null -w '%{http_code}' \
-              http://localhost:8089/student/students/getAllStudents || true)"
-            if [ "$STATUS" = "200" ] || [ "$STATUS" = "401" ] || [ "$STATUS" = "403" ] || [ "$STATUS" = "404" ]; then
-              echo "Application started (HTTP $STATUS)."
-              exit 0
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              http://localhost:8089/student/students/getAllStudents || true)
+
+            if [ "$STATUS" = "200" ]; then
+              echo "Application started successfully."
+              break
             fi
+
+            if [ "$i" -eq 40 ]; then
+              echo "Application failed to start."
+              cat app.log
+              exit 1
+            fi
+
             sleep 3
           done
-
-          echo "Application did not start. Application logs:"
-          cat app.log
-          exit 1
 
       - name: OWASP ZAP Baseline Scan
         uses: zaproxy/action-baseline@v0.14.0
         with:
-          target: http://localhost:8089/student
+          target: 'http://localhost:8089/student/students/getAllStudents'
           allow_issue_writing: false
-          rules_file_name: .zap/rules.tsv
+          rules_file_name: '.zap/rules.tsv'
           fail_action: true
 
-      - name: Upload ZAP reports
+      - name: Upload ZAP reports and application logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -372,34 +423,29 @@ jobs:
             report_html.html
             report_json.json
             report_md.md
+            app.log
           if-no-files-found: warn
-          retention-days: 7
 
-      - name: Upload application startup log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: dast-application-log
-          path: app.log
-          if-no-files-found: warn
-          retention-days: 7
 
   # ============================================================
-  # STAGE 9 - DEPLOY (GHCR + Cosign keyless)
-  # Only runs on a push to main after every security gate succeeds.
-  # Publishes the exact image scanned in Stage 5.
+  # STAGE 9 - DEPLOY (GHCR + COSIGN)
+  # Only on push to main
+  # Publishes the exact image scanned by Grype
   # ============================================================
   deploy:
     name: "9 - Deploy (GHCR + Cosign)"
     runs-on: ubuntu-latest
     needs: dast
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
     permissions:
       contents: read
       packages: write
       id-token: write
+
     env:
       IMAGE: ghcr.io/bedersaad/devsecops
+
     steps:
       - name: Download scanned Docker image
         uses: actions/download-artifact@v4
@@ -407,8 +453,8 @@ jobs:
           name: scanned-docker-image
           path: .
 
-      - name: Load scanned Docker image
-        run: docker load --input devsecops-app.tar
+      - name: Load scanned image
+        run: docker load -i devsecops-image.tar
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -417,55 +463,55 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Tag and push image to GHCR
-        id: push
-        shell: bash
+      - name: Tag image
+        env:
+          SHA_TAG: ${{ github.sha }}
         run: |
-          set -euo pipefail
+          docker tag devsecops-app:ci "$IMAGE:$SHA_TAG"
+          docker tag devsecops-app:ci "$IMAGE:latest"
 
-          docker tag devsecops-app:latest "$IMAGE:$GITHUB_SHA"
-          docker tag devsecops-app:latest "$IMAGE:latest"
+      - name: Push image with commit SHA tag
+        env:
+          SHA_TAG: ${{ github.sha }}
+        run: |
+          set -o pipefail
+          docker push "$IMAGE:$SHA_TAG" 2>&1 | tee push.log
 
-          docker push "$IMAGE:$GITHUB_SHA" 2>&1 | tee push.log
+          DIGEST=$(grep -oE 'sha256:[a-f0-9]{64}' push.log | tail -n 1)
 
-          DIGEST="$(grep -oE 'digest: sha256:[a-f0-9]+' push.log | tail -n 1 | sed 's/^digest: //')"
           if [ -z "$DIGEST" ]; then
-            echo "Could not extract the pushed image digest."
-            cat push.log
+            echo "Could not extract image digest."
             exit 1
           fi
 
-          docker push "$IMAGE:latest"
+          echo "IMAGE_DIGEST=$DIGEST" >> "$GITHUB_ENV"
+          echo "Published digest: $DIGEST"
 
-          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
-          echo "Published image: $IMAGE@$DIGEST"
+      - name: Push latest tag
+        run: docker push "$IMAGE:latest"
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3
 
-      - name: Sign image digest with keyless Cosign
-        env:
-          DIGEST: ${{ steps.push.outputs.digest }}
+      - name: Sign image using GitHub OIDC
         run: |
-          set -euo pipefail
-          cosign sign --yes "$IMAGE@$DIGEST"
+          cosign sign --yes "$IMAGE@$IMAGE_DIGEST"
 
       - name: Verify image signature
-        env:
-          DIGEST: ${{ steps.push.outputs.digest }}
         run: |
-          set -euo pipefail
-          cosign verify "$IMAGE@$DIGEST" \
-            --certificate-identity-regexp "^https://github.com/${{ github.repository }}/.github/workflows/devsecops.yml@refs/heads/main$" \
-            --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+          cosign verify "$IMAGE@$IMAGE_DIGEST" \
+            --certificate-identity-regexp "^https://github.com/BederSaad/DevSecOps/.github/workflows/devsecops.yml@refs/heads/main$" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
 
   # ============================================================
-  # STAGE 10 - NOTIFY (Telegram)
-  # Always runs after the pipeline jobs have finished.
+  # STAGE 10 - NOTIFICATION (Telegram)
+  # Always runs, even if previous stages fail or are skipped
   # ============================================================
   notify:
-    name: "10 - Notify (Telegram)"
+    name: "10 - Notification (Telegram)"
     runs-on: ubuntu-latest
+
     needs:
       - secrets_scan
       - build_test
@@ -476,9 +522,11 @@ jobs:
       - sbom
       - dast
       - deploy
+
     if: always()
+
     steps:
-      - name: Send final Telegram notification
+      - name: Send Telegram notification
         env:
           S1: ${{ needs.secrets_scan.result }}
           S2: ${{ needs.build_test.result }}
@@ -489,61 +537,63 @@ jobs:
           S7: ${{ needs.sbom.result }}
           S8: ${{ needs.dast.result }}
           S9: ${{ needs.deploy.result }}
+
           TG_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+
           BRANCH: ${{ github.ref_name }}
           ACTOR: ${{ github.actor }}
           RUN_ID: ${{ github.run_id }}
-          REPOSITORY: ${{ github.repository }}
-        shell: bash
+
         run: |
           set -euo pipefail
+
+          if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then
+            echo "Telegram secrets are missing."
+            exit 1
+          fi
 
           icon() {
             case "$1" in
               success) echo "✅" ;;
               skipped) echo "⏭️" ;;
-              failure|cancelled) echo "❌" ;;
-              *) echo "⚪" ;;
+              cancelled) echo "🚫" ;;
+              *) echo "❌" ;;
             esac
           }
 
-          STATUS="✅ PIPELINE RÉUSSI"
+          STATUS="✅ PIPELINE VERT"
+
           for s in "$S1" "$S2" "$S3" "$S4" "$S5" "$S6" "$S7" "$S8" "$S9"; do
             if [ "$s" = "failure" ] || [ "$s" = "cancelled" ]; then
-              STATUS="🚨 PIPELINE EN ÉCHEC"
+              STATUS="🚨 PIPELINE BLOQUÉ"
             fi
           done
 
-          if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then
-            echo "Telegram secrets are missing: TELEGRAM_TOKEN and/or TELEGRAM_CHAT_ID."
-            exit 1
-          fi
-
-          MESSAGE="$(printf '%s\n' \
+          MESSAGE=$(printf '%s\n' \
             "$STATUS" \
-            "Repository: $REPOSITORY" \
+            "Repository: BederSaad/DevSecOps" \
             "Branch: $BRANCH" \
             "Actor: $ACTOR" \
             "" \
-            "Pipeline stages:" \
-            "$(icon "$S1") 1 - Secrets Scan (Gitleaks): $S1" \
-            "$(icon "$S2") 2 - Build and Test (Maven): $S2" \
-            "$(icon "$S3") 3 - SAST (SonarCloud): $S3" \
-            "$(icon "$S4") 4 - SCA (Trivy): $S4" \
-            "$(icon "$S5") 5 - Docker Build and Grype: $S5" \
-            "$(icon "$S6") 6 - IaC (Checkov): $S6" \
-            "$(icon "$S7") 7 - SBOM (Syft): $S7" \
-            "$(icon "$S8") 8 - DAST (OWASP ZAP): $S8" \
-            "$(icon "$S9") 9 - Deploy (GHCR + Cosign): $S9" \
+            "Stage results:" \
+            "$(icon "$S1") 1 - Gitleaks: $S1" \
+            "$(icon "$S2") 2 - Build and Test: $S2" \
+            "$(icon "$S3") 3 - SonarCloud SAST: $S3" \
+            "$(icon "$S4") 4 - Trivy SCA: $S4" \
+            "$(icon "$S5") 5 - Docker and Grype: $S5" \
+            "$(icon "$S6") 6 - Checkov: $S6" \
+            "$(icon "$S7") 7 - Syft SBOM: $S7" \
+            "$(icon "$S8") 8 - OWASP ZAP: $S8" \
+            "$(icon "$S9") 9 - Deploy and Cosign: $S9" \
             "" \
-            "Details: https://github.com/$REPOSITORY/actions/runs/$RUN_ID")"
+            "Details: https://github.com/BederSaad/DevSecOps/actions/runs/$RUN_ID")
 
-          curl --fail --silent --show-error \
-            -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+          RESPONSE=$(curl --fail-with-body -sS -X POST \
+            "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             --data-urlencode "chat_id=${TG_CHAT}" \
-            --data-urlencode "text=${MESSAGE}" \
-            -o telegram-response.json
+            --data-urlencode "text=${MESSAGE}")
 
-          jq -e '.ok == true' telegram-response.json >/dev/null
-          echo "Telegram notification sent successfully."
+          echo "$RESPONSE" | jq .
+
+          echo "$RESPONSE" | jq -e '.ok == true' > /dev/null
