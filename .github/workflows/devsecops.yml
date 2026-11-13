@@ -1,4 +1,3 @@
-
 name: DevSecOps Pipeline
 
 on:
@@ -18,7 +17,6 @@ jobs:
   secrets_scan:
     name: "1 - Secrets Scan (Gitleaks)"
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -34,12 +32,12 @@ jobs:
 
   # ============================================================
   # STAGE 2 - BUILD AND TEST (Maven + Java 17)
+  # FIX : Java 17 aligné avec le pom.xml corrigé
   # ============================================================
   build_test:
     name: "2 - Build and Test (Maven)"
     runs-on: ubuntu-latest
     needs: secrets_scan
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -61,12 +59,10 @@ jobs:
         run: |
           JAR=$(find target -maxdepth 1 -type f \
             -name '*.jar' ! -name '*.jar.original' | head -n 1)
-
           if [ -z "$JAR" ]; then
             echo "No executable JAR found."
             exit 1
           fi
-
           echo "JAR generated: $JAR"
 
       - name: Upload JAR artifact
@@ -80,14 +76,12 @@ jobs:
 
   # ============================================================
   # STAGE 3 - SAST (SonarCloud)
-  # Java 21 required by the current SonarCloud scanner
-  # Application compilation target can remain Java 17
+  # FIX : Java 21 uniquement pour le scanner Sonar
   # ============================================================
   sast:
     name: "3 - SAST (SonarCloud)"
     runs-on: ubuntu-latest
     needs: build_test
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -101,29 +95,15 @@ jobs:
           distribution: temurin
           cache: maven
 
-      - name: Verify Java version
-        run: java -version
-
       - name: Check SonarCloud secrets
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
           SONAR_ORG: ${{ secrets.SONAR_ORG }}
         run: |
-          test -n "$SONAR_TOKEN" || {
-            echo "SONAR_TOKEN is missing."
-            exit 1
-          }
-
-          test -n "$SONAR_PROJECT_KEY" || {
-            echo "SONAR_PROJECT_KEY is missing."
-            exit 1
-          }
-
-          test -n "$SONAR_ORG" || {
-            echo "SONAR_ORG is missing."
-            exit 1
-          }
+          test -n "$SONAR_TOKEN"       || { echo "SONAR_TOKEN is missing.";       exit 1; }
+          test -n "$SONAR_PROJECT_KEY" || { echo "SONAR_PROJECT_KEY is missing."; exit 1; }
+          test -n "$SONAR_ORG"         || { echo "SONAR_ORG is missing.";         exit 1; }
 
       - name: SonarCloud Scan and Quality Gate
         env:
@@ -142,13 +122,11 @@ jobs:
 
   # ============================================================
   # STAGE 4 - SCA (Trivy)
-  # Blocks on CRITICAL dependency vulnerabilities
   # ============================================================
   sca:
     name: "4 - SCA (Trivy)"
     runs-on: ubuntu-latest
     needs: sast
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -197,13 +175,11 @@ jobs:
 
   # ============================================================
   # STAGE 5 - DOCKER BUILD + GRYPE IMAGE SCAN
-  # Builds one image, scans it, and saves that exact image
   # ============================================================
   docker_scan:
     name: "5 - Docker Build and Grype Scan"
     runs-on: ubuntu-latest
     needs: sca
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -216,11 +192,8 @@ jobs:
 
       - name: Verify downloaded JAR
         run: |
-          find target -maxdepth 1 -type f -name '*.jar' -print
-
           JAR=$(find target -maxdepth 1 -type f \
             -name '*.jar' ! -name '*.jar.original' | head -n 1)
-
           if [ -z "$JAR" ]; then
             echo "Tested JAR is missing."
             exit 1
@@ -236,7 +209,6 @@ jobs:
         run: |
           curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh \
             | sh -s -- -b /usr/local/bin
-
           grype version
 
       - name: Generate Grype JSON report
@@ -264,8 +236,7 @@ jobs:
             --only-fixed
 
       - name: Save scanned Docker image
-        run: |
-          docker save devsecops-app:ci -o devsecops-image.tar
+        run: docker save devsecops-app:ci -o devsecops-image.tar
 
       - name: Upload scanned Docker image
         uses: actions/upload-artifact@v4
@@ -278,13 +249,11 @@ jobs:
 
   # ============================================================
   # STAGE 6 - IaC SCAN (Checkov)
-  # Blocking Dockerfile security checks
   # ============================================================
   iac_scan:
     name: "6 - IaC Scan (Checkov)"
     runs-on: ubuntu-latest
     needs: docker_scan
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -300,13 +269,11 @@ jobs:
 
   # ============================================================
   # STAGE 7 - SBOM (Syft)
-  # Generates SBOM from the exact Grype-scanned Docker image
   # ============================================================
   sbom:
     name: "7 - SBOM Generation (Syft)"
     runs-on: ubuntu-latest
     needs: iac_scan
-
     steps:
       - name: Download scanned Docker image
         uses: actions/download-artifact@v4
@@ -321,7 +288,6 @@ jobs:
         run: |
           curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
             | sh -s -- -b /usr/local/bin
-
           syft version
 
       - name: Generate CycloneDX SBOM
@@ -339,13 +305,11 @@ jobs:
 
   # ============================================================
   # STAGE 8 - DAST (OWASP ZAP)
-  # Tests the already-built application JAR
   # ============================================================
   dast:
     name: "8 - DAST (OWASP ZAP)"
     runs-on: ubuntu-latest
     needs: sbom
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -367,13 +331,10 @@ jobs:
         run: |
           JAR=$(find target -maxdepth 1 -type f \
             -name '*.jar' ! -name '*.jar.original' | head -n 1)
-
           if [ -z "$JAR" ]; then
             echo "Application JAR not found."
             exit 1
           fi
-
-          echo "Using JAR: $JAR"
           echo "APP_JAR=$JAR" >> "$GITHUB_ENV"
 
       - name: Start Spring Boot application
@@ -391,18 +352,15 @@ jobs:
           for i in $(seq 1 40); do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
               http://localhost:8089/student/students/getAllStudents || true)
-
             if [ "$STATUS" = "200" ]; then
               echo "Application started successfully."
               break
             fi
-
             if [ "$i" -eq 40 ]; then
               echo "Application failed to start."
               cat app.log
               exit 1
             fi
-
             sleep 3
           done
 
@@ -429,8 +387,7 @@ jobs:
 
   # ============================================================
   # STAGE 9 - DEPLOY (GHCR + COSIGN)
-  # Only on push to main
-  # Publishes the exact image scanned by Grype
+  # FIX : package visibility + labels pour rendre l'image visible
   # ============================================================
   deploy:
     name: "9 - Deploy (GHCR + Cosign)"
@@ -444,9 +401,13 @@ jobs:
       id-token: write
 
     env:
+      # FIX : minuscules obligatoires pour GHCR
       IMAGE: ghcr.io/bedersaad/devsecops
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Download scanned Docker image
         uses: actions/download-artifact@v4
         with:
@@ -478,7 +439,6 @@ jobs:
           docker push "$IMAGE:$SHA_TAG" 2>&1 | tee push.log
 
           DIGEST=$(grep -oE 'sha256:[a-f0-9]{64}' push.log | tail -n 1)
-
           if [ -z "$DIGEST" ]; then
             echo "Could not extract image digest."
             exit 1
@@ -490,28 +450,48 @@ jobs:
       - name: Push latest tag
         run: docker push "$IMAGE:latest"
 
+      # FIX : rendre le package public via l'API GitHub
+      # Nécessite un PAT avec scope write:packages stocké dans PACKAGES_TOKEN
+      - name: Set GHCR package visibility to public
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+        run: |
+          curl -s -X PATCH \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/user/packages/container/devsecops/versions" \
+            || true
+
+          # Rendre le package public
+          curl -s -X PATCH \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/users/BederSaad/packages/container/devsecops" \
+            -d '{"visibility":"public"}' \
+            | jq .
+
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3
 
       - name: Sign image using GitHub OIDC
-        run: |
-          cosign sign --yes "$IMAGE@$IMAGE_DIGEST"
+        run: cosign sign --yes "$IMAGE@$IMAGE_DIGEST"
 
       - name: Verify image signature
         run: |
           cosign verify "$IMAGE@$IMAGE_DIGEST" \
-            --certificate-identity-regexp "^https://github.com/BederSaad/DevSecOps/.github/workflows/devsecops.yml@refs/heads/main$" \
+            --certificate-identity-regexp \
+              "^https://github.com/BederSaad/DevSecOps/.github/workflows/devsecops.yml@refs/heads/main$" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
 
   # ============================================================
   # STAGE 10 - NOTIFICATION (Telegram)
-  # Always runs, even if previous stages fail or are skipped
   # ============================================================
   notify:
     name: "10 - Notification (Telegram)"
     runs-on: ubuntu-latest
-
     needs:
       - secrets_scan
       - build_test
@@ -522,7 +502,6 @@ jobs:
       - sbom
       - dast
       - deploy
-
     if: always()
 
     steps:
@@ -537,14 +516,11 @@ jobs:
           S7: ${{ needs.sbom.result }}
           S8: ${{ needs.dast.result }}
           S9: ${{ needs.deploy.result }}
-
           TG_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
-
           BRANCH: ${{ github.ref_name }}
           ACTOR: ${{ github.actor }}
           RUN_ID: ${{ github.run_id }}
-
         run: |
           set -euo pipefail
 
@@ -555,15 +531,14 @@ jobs:
 
           icon() {
             case "$1" in
-              success) echo "✅" ;;
-              skipped) echo "⏭️" ;;
+              success)   echo "✅" ;;
+              skipped)   echo "⏭️" ;;
               cancelled) echo "🚫" ;;
-              *) echo "❌" ;;
+              *)         echo "❌" ;;
             esac
           }
 
           STATUS="✅ PIPELINE VERT"
-
           for s in "$S1" "$S2" "$S3" "$S4" "$S5" "$S6" "$S7" "$S8" "$S9"; do
             if [ "$s" = "failure" ] || [ "$s" = "cancelled" ]; then
               STATUS="🚨 PIPELINE BLOQUÉ"
@@ -595,5 +570,4 @@ jobs:
             --data-urlencode "text=${MESSAGE}")
 
           echo "$RESPONSE" | jq .
-
           echo "$RESPONSE" | jq -e '.ok == true' > /dev/null
