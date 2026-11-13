@@ -19,7 +19,7 @@ import java.util.List;
  */
 @RestController
 @RequestMapping({"/Enrollment", "/enrollment", "/enrollments", "/Enrollments"})
-@CrossOrigin(origins = "*")
+@CrossOrigin(origins = "${app.cors.allowed-origins}")
 @AllArgsConstructor
 public class EnrollmentController {
 

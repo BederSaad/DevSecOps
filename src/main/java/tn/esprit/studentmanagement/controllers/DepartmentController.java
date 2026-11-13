@@ -17,7 +17,7 @@ import java.util.List;
  */
 @RestController
 @RequestMapping({"/Depatment", "/department", "/departments", "/Department"})
-@CrossOrigin(origins = "*")
+@CrossOrigin(origins = "${app.cors.allowed-origins}")
 @AllArgsConstructor
 public class DepartmentController {
 

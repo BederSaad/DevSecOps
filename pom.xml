@@ -61,6 +61,12 @@
             <scope>test</scope>
         </dependency>
 
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
         <!-- H2 pour les tests et le DAST en mémoire -->
         <dependency>
             <groupId>com.h2database</groupId>
