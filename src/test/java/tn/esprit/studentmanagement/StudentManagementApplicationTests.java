@@ -8,6 +8,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -49,5 +50,23 @@ class StudentManagementApplicationTests {
                         .header("Access-Control-Request-Method", "GET"))
                 .andExpect(status().isForbidden())
                 .andExpect(header().doesNotExist("Access-Control-Allow-Origin"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "/students/getAllStudents",
+            "/"
+    })
+    void appliesSecurityHeadersToApiAndNotFoundResponses(String path) throws Exception {
+        mockMvc.perform(get(path))
+                .andExpect(status().is(path.equals("/") ? 404 : 200))
+                .andExpect(header().string("X-Content-Type-Options", "nosniff"))
+                .andExpect(header().string(
+                        "Content-Security-Policy",
+                        "default-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
+                ))
+                .andExpect(header().string("Permissions-Policy", "camera=(), microphone=(), geolocation=()"))
+                .andExpect(header().string("Cross-Origin-Resource-Policy", "same-origin"))
+                .andExpect(header().string("Cache-Control", "no-store"));
     }
 }
