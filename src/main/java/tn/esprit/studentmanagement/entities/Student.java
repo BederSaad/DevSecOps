@@ -1,5 +1,6 @@
 package tn.esprit.studentmanagement.entities;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -26,6 +27,7 @@ public class Student {
     @ManyToOne
     private Department department;
 
+    @JsonIgnore
     @OneToMany(mappedBy = "student")
     private List<Enrollment> enrollments;
 }

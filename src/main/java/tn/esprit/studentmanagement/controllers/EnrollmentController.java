@@ -18,8 +18,8 @@ import java.util.List;
  * used as @RequestBody).</p>
  */
 @RestController
-@RequestMapping("/Enrollment")
-@CrossOrigin(origins = "http://localhost:4200")
+@RequestMapping({"/Enrollment", "/enrollment", "/enrollments", "/Enrollments"})
+@CrossOrigin(origins = "*")
 @AllArgsConstructor
 public class EnrollmentController {
 

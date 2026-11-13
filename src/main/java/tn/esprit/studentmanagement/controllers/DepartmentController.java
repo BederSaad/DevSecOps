@@ -16,8 +16,8 @@ import java.util.List;
  * used as @RequestBody).</p>
  */
 @RestController
-@RequestMapping("/Depatment")
-@CrossOrigin(origins = "http://localhost:4200")
+@RequestMapping({"/Depatment", "/department", "/departments", "/Department"})
+@CrossOrigin(origins = "*")
 @AllArgsConstructor
 public class DepartmentController {
 

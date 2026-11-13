@@ -1,5 +1,6 @@
 package tn.esprit.studentmanagement.entities;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -20,7 +21,7 @@ public class Course {
     private int credit;            // nombre de crédits
     private String description;
 
+    @JsonIgnore
     @OneToMany(mappedBy = "course")
     private List<Enrollment> enrollments;
-
 }

@@ -2,6 +2,9 @@
 # (le build Maven est fait par le runner GitHub Actions, pas dans Docker)
 FROM eclipse-temurin:21-jre-alpine
 
+# ── Sécurité : mise à jour des paquets Alpine (fix CVE-2026-4738 zlib, etc.) ─
+RUN apk update && apk upgrade --no-cache
+
 # ── Sécurité : user non-root (exigé par Checkov CKV_DOCKER_3) ───────────────
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
