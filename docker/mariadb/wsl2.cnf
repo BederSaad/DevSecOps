@@ -1,0 +1,20 @@
+[mariadbd]
+# WSL2 / Docker Desktop compatibility flags
+# ─────────────────────────────────────────
+# Disable native async I/O (io_uring disabled in Docker Desktop WSL2 kernel)
+innodb-use-native-aio      = 0
+
+# Use fsync instead of O_DIRECT — required when the Docker volume
+# filesystem does not support O_DIRECT (virtiofs / Docker Desktop on Windows)
+innodb-flush-method        = fsync
+
+# Conservative memory footprint for 8GB dev machine
+innodb-buffer-pool-size    = 64M
+
+# Character set
+character-set-server       = utf8mb4
+collation-server           = utf8mb4_unicode_ci
+
+# Safety
+max-connections            = 50
+local-infile               = OFF

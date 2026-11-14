@@ -31,3 +31,15 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Kubernetes — never commit files with real secrets ###
+k8s/*-secret-real.yaml
+k8s/.env
+*.kubeconfig
+kubeconfig
+
+### Docker Compose — never commit real credentials ###
+.env
+docker-compose.override.yml
+
+data/  

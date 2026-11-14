@@ -1,0 +1,97 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Cloudflare Tunnel deployment — routes HTTPS traffic to the Spring Boot app
+# without exposing any port publicly.
+#
+# Architecture:
+#   Internet → Cloudflare HTTPS → Tunnel → K8s ClusterIP → Spring Boot
+#
+# Prerequisites:
+#   1. Create a Cloudflare Tunnel (free) at https://one.dash.cloudflare.com/
+#   2. Store the tunnel token in GitHub Secrets as CLOUDFLARE_TUNNEL_TOKEN
+#   3. The CI/CD pipeline creates the k8s secret cloudflare-tunnel-secret
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cloudflare-tunnel-secret
+  namespace: student-management
+  labels:
+    app: cloudflare-tunnel
+    app.kubernetes.io/component: ingress
+type: Opaque
+# PLACEHOLDER — overwritten by CI/CD from GitHub Secrets CLOUDFLARE_TUNNEL_TOKEN
+data:
+  tunnel-token: Y2hhbmdlbWU=
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflare-tunnel
+  namespace: student-management
+  labels:
+    app: cloudflare-tunnel
+    app.kubernetes.io/component: ingress
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloudflare-tunnel
+  template:
+    metadata:
+      labels:
+        app: cloudflare-tunnel
+        app.kubernetes.io/component: ingress
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532       # cloudflared non-root user
+        runAsGroup: 65532
+
+      terminationGracePeriodSeconds: 30
+
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:latest
+          imagePullPolicy: Always
+          args:
+            - tunnel
+            - --no-autoupdate
+            - run
+            - --token
+            - $(TUNNEL_TOKEN)
+
+          env:
+            - name: TUNNEL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: cloudflare-tunnel-secret
+                  key: tunnel-token
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            initialDelaySeconds: 5
+            periodSeconds: 5

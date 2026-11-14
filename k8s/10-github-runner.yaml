@@ -1,0 +1,134 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# GitHub Actions Self-Hosted Runner — runs INSIDE the Kubernetes cluster
+# so it can run kubectl commands directly without exposing the K8s API.
+#
+# This runner registers itself with GitHub and receives deployment jobs.
+# The Kubernetes API is NEVER exposed publicly.
+#
+# Setup:
+#   1. Generate a runner registration token from GitHub:
+#      Repository → Settings → Actions → Runners → New self-hosted runner
+#   2. Store the token in GitHub Secrets as RUNNER_TOKEN (or use PAT)
+#   3. Deploy this manifest with: kubectl apply -f 10-github-runner.yaml
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: github-runner
+  namespace: student-management
+  labels:
+    app: github-runner
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: github-runner-role
+  namespace: student-management
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps", "secrets"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "list", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: github-runner-rolebinding
+  namespace: student-management
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: github-runner-role
+subjects:
+  - kind: ServiceAccount
+    name: github-runner
+    namespace: student-management
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: github-runner-secret
+  namespace: student-management
+  labels:
+    app: github-runner
+type: Opaque
+# PLACEHOLDER — overwritten by CI/CD bootstrap script at deploy time
+# DO NOT put real tokens here — this file is committed to source control
+data:
+  github-token: REPLACE_WITH_BASE64_ENCODED_TOKEN
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: github-runner
+  namespace: student-management
+  labels:
+    app: github-runner
+    app.kubernetes.io/component: ci
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: github-runner
+  template:
+    metadata:
+      labels:
+        app: github-runner
+        app.kubernetes.io/component: ci
+    spec:
+      serviceAccountName: github-runner
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+
+      containers:
+        - name: runner
+          image: myoung34/github-runner:latest
+          imagePullPolicy: Always
+
+          env:
+            - name: RUNNER_SCOPE
+              value: "repo"
+            - name: REPO_URL
+              value: "https://github.com/BederSaad/DevSecOps"
+            - name: RUNNER_NAME
+              value: "k8s-runner"
+            - name: RUNNER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: github-runner-secret
+                  key: github-token
+            - name: RUNNER_LABELS
+              value: "self-hosted,linux,k8s-deploy"
+            - name: DISABLE_AUTO_UPDATE
+              value: "true"
+
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+
+          volumeMounts:
+            - name: runner-work
+              mountPath: /home/runner/_work
+
+      volumes:
+        - name: runner-work
+          emptyDir: {}

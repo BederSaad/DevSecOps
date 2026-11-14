@@ -1,0 +1,156 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: student-management
+  namespace: student-management
+  labels:
+    app: student-management
+    app.kubernetes.io/component: application
+    app.kubernetes.io/version: "latest"
+  annotations:
+    # Updated by CI/CD with the commit SHA on each deployment
+    deployment.kubernetes.io/image-tag: "latest"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: student-management
+  # Rolling update strategy — zero downtime deployments
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: student-management
+        app.kubernetes.io/component: application
+    spec:
+      # Security context at pod level
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000       # appuser from Dockerfile
+        runAsGroup: 1000
+        fsGroup: 1000
+
+      # Pull image from GHCR — secret injected by CI/CD
+      imagePullSecrets:
+        - name: ghcr-secret
+
+      # Wait for MySQL before starting
+      initContainers:
+        - name: wait-for-mysql
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for MySQL at mysql-service:3306..."
+              until nc -z -v -w5 mysql-service 3306; do
+                echo "MySQL not ready, retrying in 5s..."
+                sleep 5
+              done
+              echo "MySQL is ready!"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+
+      terminationGracePeriodSeconds: 30
+
+      containers:
+        - name: student-management
+          # IMAGE_TAG is replaced by CI/CD with the actual commit SHA
+          image: ghcr.io/bedersaad/devsecops:latest
+          imagePullPolicy: Always
+
+          ports:
+            - containerPort: 8089
+              name: http
+              protocol: TCP
+
+          # Security context at container level
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false   # Spring Boot needs write access to /tmp
+            capabilities:
+              drop:
+                - ALL
+
+          # Environment from ConfigMap (non-sensitive)
+          envFrom:
+            - configMapRef:
+                name: app-config
+
+          # Environment from Secret (sensitive credentials)
+          env:
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: mysql-username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: mysql-password
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: mysql-username
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: mysql-password
+
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+
+          # Liveness probe — is the app alive?
+          livenessProbe:
+            httpGet:
+              path: /student/students/getAllStudents
+              port: 8089
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+
+          # Readiness probe — is the app ready to serve traffic?
+          readinessProbe:
+            httpGet:
+              path: /student/students/getAllStudents
+              port: 8089
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+
+          # Startup probe — allow longer start for first boot with schema creation
+          startupProbe:
+            httpGet:
+              path: /student/students/getAllStudents
+              port: 8089
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 15   # Up to 2.5 minutes for initial startup
+
+          # Graceful shutdown
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]

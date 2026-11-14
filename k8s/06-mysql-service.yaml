@@ -1,0 +1,37 @@
+---
+# Headless service for StatefulSet DNS
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-headless
+  namespace: student-management
+  labels:
+    app: mysql
+    app.kubernetes.io/component: database
+spec:
+  clusterIP: None
+  selector:
+    app: mysql
+  ports:
+    - port: 3306
+      targetPort: 3306
+      name: mysql
+---
+# ClusterIP service for application access — MySQL NEVER exposed externally
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-service
+  namespace: student-management
+  labels:
+    app: mysql
+    app.kubernetes.io/component: database
+spec:
+  type: ClusterIP
+  selector:
+    app: mysql
+  ports:
+    - port: 3306
+      targetPort: 3306
+      protocol: TCP
+      name: mysql
