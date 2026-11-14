@@ -462,14 +462,13 @@ jobs:
 
 
   # ============================================================
-  # STAGE 10 - DOCKER COMPOSE DEPLOYMENT (Self-Hosted Runner)
-  # Deploys via Docker Compose on the local machine.
-  # The self-hosted runner runs on the same host as Docker Desktop.
-  # Cloudflare Tunnel provides public HTTPS — no ports exposed.
+  # STAGE 10 - DOCKER COMPOSE DEPLOYMENT & VERIFICATION
+  # Verifies the full-stack compose deployment, container health,
+  # and reverse proxy networking on GitHub cloud runner.
   # ============================================================
   compose_deploy:
     name: "10 - Docker Compose Deploy"
-    runs-on: [self-hosted, linux, compose-deploy]
+    runs-on: ubuntu-latest
     needs: deploy
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
@@ -497,44 +496,30 @@ jobs:
             --certificate-oidc-issuer https://token.actions.githubusercontent.com
           echo "✅ Image signature verified for $IMAGE:$SHA_TAG"
 
-      # ── 2. Write .env from GitHub Secrets (never committed to git) ──
-      - name: Write deployment .env file
-        env:
-          MYSQL_ROOT_PASSWORD:     ${{ secrets.MYSQL_ROOT_PASSWORD }}
-          MYSQL_USERNAME:          ${{ secrets.MYSQL_USERNAME }}
-          MYSQL_PASSWORD:          ${{ secrets.MYSQL_PASSWORD }}
-          CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
-          SHA_TAG:                 ${{ github.sha }}
-          PUBLIC_DOMAIN:           ${{ secrets.PUBLIC_DOMAIN }}
+      # ── 2. Build local frontend image for compose stack ─────────────
+      - name: Build frontend container
         run: |
-          printf 'MYSQL_ROOT_PASSWORD=%s\nMYSQL_DATABASE=studentdb\nMYSQL_USERNAME=%s\nMYSQL_PASSWORD=%s\nIMAGE_TAG=%s\nCLOUDFLARE_TUNNEL_TOKEN=%s\nPUBLIC_DOMAIN=%s\n' \
-            "$MYSQL_ROOT_PASSWORD" \
-            "$MYSQL_USERNAME" \
-            "$MYSQL_PASSWORD" \
-            "$SHA_TAG" \
-            "$CLOUDFLARE_TUNNEL_TOKEN" \
-            "$PUBLIC_DOMAIN" \
-            > .env
-          echo "✅ .env written (secrets not logged)"
+          cd frontend
+          npm ci || npm install
+          npm run build
+          docker build -t student-frontend:latest .
+          echo "✅ Frontend container built"
 
-      # ── 3. Pull the signed image ────────────────────────────────────
-      - name: Pull signed image
+      # ── 3. Write .env from GitHub Secrets ───────────────────────────
+      - name: Write deployment .env file
         env:
           SHA_TAG: ${{ github.sha }}
         run: |
-          docker pull "$IMAGE:$SHA_TAG"
-          docker tag "$IMAGE:$SHA_TAG" "$IMAGE:latest"
-          echo "✅ Image pulled and tagged as latest"
+          printf 'IMAGE_TAG=%s\n' "$SHA_TAG" > .env
+          echo "✅ .env written"
 
-      # ── 4. Deploy with Docker Compose (rolling update) ─────────────
-      - name: Deploy with Docker Compose
+      # ── 4. Deploy with Docker Compose ───────────────────────────────
+      - name: Deploy full stack with Docker Compose
         run: |
-          # Bring up MySQL first (if not running), then update app
-          docker compose pull app
-          docker compose up -d --no-deps app cloudflared
-          echo "✅ Containers updated"
+          docker compose up -d
+          echo "✅ Stack launched"
 
-      # ── 5. Wait for healthy status ──────────────────────────────────
+      # ── 5. Wait for backend health ──────────────────────────────────
       - name: Wait for application health
         run: |
           echo "Waiting for student-app to become healthy..."
@@ -550,47 +535,34 @@ jobs:
               docker compose logs app --tail=50
               exit 1
             fi
-            sleep 10
+            sleep 5
           done
 
-      # ── 6. Functional health check ──────────────────────────────────
-      - name: Application API health check
+      # ── 6. Functional verification via internal reverse proxy ───────
+      - name: Verify full stack integration
         run: |
-          # App port is not published externally — check via docker exec
-          HTTP_CODE=$(docker exec student-app wget -qS \
-            http://localhost:8089/student/students/getAllStudents 2>&1 \
+          # Test backend API through frontend Nginx reverse proxy
+          HTTP_CODE=$(docker exec student-frontend wget -qS \
+            http://localhost/student/students/getAllStudents 2>&1 \
             | grep "HTTP/" | awk '{print $2}' | head -1 || echo "000")
           if [ "$HTTP_CODE" = "200" ]; then
-            echo "✅ API responded HTTP 200"
+            echo "✅ Frontend to backend proxy responded HTTP 200"
           else
-            echo "⚠️  API returned HTTP $HTTP_CODE (may be first-time startup)"
-            docker compose logs app --tail=30
+            echo "⚠️  Proxy returned HTTP $HTTP_CODE"
+            docker compose logs --tail=30
           fi
 
-      # ── 7. Print Cloudflare public URL ──────────────────────────────
-      - name: Print Cloudflare tunnel URL
-        run: |
-          echo "Fetching Cloudflare quick-tunnel public URL..."
-          sleep 5
-          docker logs student-cloudflared 2>&1 | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' | tail -1 || \
-            echo "URL not yet available — check: docker logs student-cloudflared"
-
-      # ── 8. Print summary ────────────────────────────────────────────
+      # ── 7. Deployment summary ───────────────────────────────────────
       - name: Deployment summary
         env:
           SHA_TAG: ${{ github.sha }}
         run: |
           echo "========================================"
-          echo "DEPLOYMENT SUMMARY"
+          echo "DEPLOYMENT VERIFICATION SUMMARY"
           echo "========================================"
           echo "Image: $IMAGE:$SHA_TAG"
           docker compose ps
           echo "========================================"
-
-      # ── 9. Cleanup .env ─────────────────────────────────────────────
-      - name: Remove .env from runner workspace
-        if: always()
-        run: rm -f .env
 
 
   # ============================================================
