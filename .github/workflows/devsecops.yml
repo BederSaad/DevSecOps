@@ -254,7 +254,7 @@ jobs:
       - name: Run Checkov on Dockerfile
         uses: bridgecrewio/checkov-action@v12
         with:
-          directory: .
+          file: Dockerfile
           framework: dockerfile
           soft_fail: false
           output_format: cli
